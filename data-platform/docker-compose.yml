@@ -1,0 +1,184 @@
+version: '3.8'
+
+services:
+  # PostgreSQL - 構造化データ
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: data_platform
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-admin123}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./config/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+    networks:
+      - data-platform
+
+  # MongoDB - 非構造化データ
+  mongodb:
+    image: mongo:7
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-admin123}
+    volumes:
+      - mongodb_data:/data/db
+    ports:
+      - "27017:27017"
+    networks:
+      - data-platform
+
+  # Redis - キャッシュ・セッション管理
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - data-platform
+
+  # MinIO - オブジェクトストレージ
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-admin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-admin123}
+    volumes:
+      - minio_data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    networks:
+      - data-platform
+
+  # Airflow Webserver
+  airflow-webserver:
+    build: ./docker/airflow
+    depends_on:
+      - postgres
+      - redis
+    environment:
+      AIRFLOW__CORE__EXECUTOR: CeleryExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://admin:${POSTGRES_PASSWORD:-admin123}@postgres/airflow
+      AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://admin:${POSTGRES_PASSWORD:-admin123}@postgres/airflow
+      AIRFLOW__CELERY__BROKER_URL: redis://:@redis:6379/0
+      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
+      AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+      AIRFLOW__API__AUTH_BACKENDS: 'airflow.api.auth.backend.basic_auth'
+      _AIRFLOW_DB_UPGRADE: 'true'
+      _AIRFLOW_WWW_USER_CREATE: 'true'
+      _AIRFLOW_WWW_USER_USERNAME: admin
+      _AIRFLOW_WWW_USER_PASSWORD: ${AIRFLOW_PASSWORD:-admin123}
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+      - ./airflow/plugins:/opt/airflow/plugins
+      - ./scraping:/opt/airflow/scraping
+    ports:
+      - "8080:8080"
+    command: webserver
+    networks:
+      - data-platform
+
+  # Airflow Scheduler
+  airflow-scheduler:
+    build: ./docker/airflow
+    depends_on:
+      - postgres
+      - redis
+    environment:
+      AIRFLOW__CORE__EXECUTOR: CeleryExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://admin:${POSTGRES_PASSWORD:-admin123}@postgres/airflow
+      AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://admin:${POSTGRES_PASSWORD:-admin123}@postgres/airflow
+      AIRFLOW__CELERY__BROKER_URL: redis://:@redis:6379/0
+      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+      - ./airflow/plugins:/opt/airflow/plugins
+      - ./scraping:/opt/airflow/scraping
+    command: scheduler
+    networks:
+      - data-platform
+
+  # Airflow Worker
+  airflow-worker:
+    build: ./docker/airflow
+    depends_on:
+      - postgres
+      - redis
+    environment:
+      AIRFLOW__CORE__EXECUTOR: CeleryExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://admin:${POSTGRES_PASSWORD:-admin123}@postgres/airflow
+      AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://admin:${POSTGRES_PASSWORD:-admin123}@postgres/airflow
+      AIRFLOW__CELERY__BROKER_URL: redis://:@redis:6379/0
+      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+      - ./airflow/plugins:/opt/airflow/plugins
+      - ./scraping:/opt/airflow/scraping
+    command: celery worker
+    networks:
+      - data-platform
+
+  # FastAPI - データアクセスAPI
+  api:
+    build: ./docker/api
+    depends_on:
+      - postgres
+      - mongodb
+      - redis
+    environment:
+      DATABASE_URL: postgresql://admin:${POSTGRES_PASSWORD:-admin123}@postgres/data_platform
+      MONGODB_URL: mongodb://admin:${MONGO_PASSWORD:-admin123}@mongodb:27017/
+      REDIS_URL: redis://redis:6379
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-admin}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-admin123}
+    volumes:
+      - ./api:/app
+    ports:
+      - "8000:8000"
+    networks:
+      - data-platform
+
+  # Jupyter Hub - データ分析環境
+  jupyterhub:
+    image: jupyterhub/jupyterhub:latest
+    volumes:
+      - ./config/jupyterhub:/srv/jupyterhub
+      - jupyterhub_data:/srv/jupyterhub/data
+    ports:
+      - "8888:8000"
+    networks:
+      - data-platform
+
+  # Grafana - 可視化
+  grafana:
+    image: grafana/grafana:latest
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin123}
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./config/grafana:/etc/grafana/provisioning
+    ports:
+      - "3000:3000"
+    networks:
+      - data-platform
+
+volumes:
+  postgres_data:
+  mongodb_data:
+  redis_data:
+  minio_data:
+  jupyterhub_data:
+  grafana_data:
+
+networks:
+  data-platform:
+    driver: bridge

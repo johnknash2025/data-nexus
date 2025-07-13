@@ -1,0 +1,23 @@
+apiVersion: 1
+
+datasources:
+  - name: PostgreSQL
+    type: postgres
+    url: postgres:5432
+    database: data_platform
+    user: admin
+    secureJsonData:
+      password: admin123
+    jsonData:
+      sslmode: disable
+      maxOpenConns: 100
+      maxIdleConns: 100
+      connMaxLifetime: 14400
+
+  - name: MongoDB
+    type: grafana-mongodb-datasource
+    url: mongodb://admin:admin123@mongodb:27017/data_platform
+    jsonData:
+      authType: credentials
+      tlsAuth: false
+      tlsAuthWithCACert: false

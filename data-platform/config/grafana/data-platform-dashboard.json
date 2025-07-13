@@ -1,0 +1,39 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "AI Data Platform Dashboard",
+    "tags": ["data-platform", "ai"],
+    "timezone": "browser",
+    "panels": [
+      {
+        "id": 1,
+        "title": "スクレイピング統計",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "SELECT COUNT(*) as total_images FROM scraped_images",
+            "refId": "A"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0}
+      },
+      {
+        "id": 2,
+        "title": "データ品質スコア",
+        "type": "gauge",
+        "targets": [
+          {
+            "expr": "SELECT AVG(quality_score) FROM data_quality_reports WHERE generated_at > NOW() - INTERVAL '1 day'",
+            "refId": "B"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0}
+      }
+    ],
+    "time": {
+      "from": "now-24h",
+      "to": "now"
+    },
+    "refresh": "30s"
+  }
+}

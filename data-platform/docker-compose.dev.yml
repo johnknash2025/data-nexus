@@ -1,0 +1,68 @@
+# 開発環境用のDocker Compose設定（軽量版）
+version: '3.8'
+
+services:
+  # PostgreSQL - 構造化データ
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: data_platform
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin123
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./config/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+    networks:
+      - data-platform
+
+  # MongoDB - 非構造化データ
+  mongodb:
+    image: mongo:7
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: admin123
+    volumes:
+      - mongodb_data:/data/db
+    ports:
+      - "27017:27017"
+    networks:
+      - data-platform
+
+  # Redis - キャッシュ
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - data-platform
+
+  # FastAPI - データアクセスAPI
+  api:
+    build: ./docker/api
+    depends_on:
+      - postgres
+      - mongodb
+      - redis
+    environment:
+      DATABASE_URL: postgresql://admin:admin123@postgres/data_platform
+      MONGODB_URL: mongodb://admin:admin123@mongodb:27017/
+      REDIS_URL: redis://redis:6379
+    volumes:
+      - ./api:/app
+    ports:
+      - "8000:8000"
+    networks:
+      - data-platform
+
+volumes:
+  postgres_data:
+  mongodb_data:
+  redis_data:
+
+networks:
+  data-platform:
+    driver: bridge
